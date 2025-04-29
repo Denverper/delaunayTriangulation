@@ -1,7 +1,6 @@
 import random
 from matplotlib import pyplot as plt
-import numpy as np
-import tools
+import tools as tools
 
 class DCEL:
     def __init__(self):
@@ -11,6 +10,7 @@ class DCEL:
         self.vertices = set()  # List of vertices
         self.edges = {}  # Hash table for edges (key: (start, end), value: Edge)
         self.faces = set()  # set of faces
+        self.versioned_edges = {}  # Hash table for versioned edges (key: (start, end), value: Edges of every version that share those start and end vertices)
 
     def get_or_create_vertex(self, v):
         """
@@ -27,7 +27,7 @@ class DCEL:
         self.vertices.add(v)
         return v
 
-    def create_face(self, points):
+    def create_face(self, points, version):
         """
         Make a new face from a list of points (vertices).
         Creates new half edges for this face, and uses twins if they already exist
@@ -53,58 +53,97 @@ class DCEL:
             v1 = vertices[i]
             v2 = vertices[(i + 1) % len(vertices)]
             
-            new_edge = Edge(v1, v2) ## make new edge
+            new_edge = Edge(v1, v2, version) ## make new edge
             
             twin_key = (v2.coordinates, v1.coordinates) ## check if there already is a twin, if not, make one
-            if twin_key in self.edges:
-                twin_edge = self.edges[twin_key]
-                new_edge.twin = twin_edge
-                twin_edge.twin = new_edge
+            if twin_key in self.versioned_edges:
+                twin_edge = self.versioned_edges[twin_key][-1][0] ## get the last twin edge
+                new_edge.twin = [twin_edge]
+                twin_edge.twin.append(new_edge)
             else:
-                twin_edge = Edge(v2, v1)
-                new_edge.twin = twin_edge
-                twin_edge.twin = new_edge
+                twin_edge = Edge(v2, v1, version)
+                new_edge.twin = [twin_edge]
+                twin_edge.twin = [new_edge]
             
-            self.edges[(v1.coordinates, v2.coordinates)] = new_edge
-            self.edges[(v2.coordinates, v1.coordinates)] = twin_edge
+            self.edges[(v1.coordinates, v2.coordinates, version)] = new_edge
+            self.edges[(v2.coordinates, v1.coordinates, version)] = twin_edge
+            
+            if (v1.coordinates, v2.coordinates) in self.versioned_edges:
+                self.versioned_edges[(v1.coordinates, v2.coordinates)].append((new_edge, version))
+            else:
+                self.versioned_edges[(v1.coordinates, v2.coordinates)] = [(new_edge, version)]
+                
+            if (v2.coordinates, v1.coordinates) in self.versioned_edges:
+                self.versioned_edges[(v2.coordinates, v1.coordinates)].append((twin_edge, version))
+            else:
+                self.versioned_edges[(v2.coordinates, v1.coordinates)] = [(twin_edge, version)]
+                
             new_edges.append(new_edge)
         
         for i, edge in enumerate(new_edges):
             edge.next = new_edges[(i + 1) % len(new_edges)]
             edge.prev = new_edges[i - 1]
 
-        face = Face(new_edges[0])
+        face = Face(new_edges[0], version)
         for edge in new_edges:
             edge.face = face
 
         self.faces.add(face)
         return face
 
-                
-    def remove_face(self, face):
+    def get_versioned_edge(self, start, end, version):
         """
-        Remove a face from the DCEL, and remove the edges that belong to the face, if the twin is None, remove bothe edges, if not, set its half edge to None.
+        Get an edge from the DCEL by its start and end vertices.
+
+        Args:
+            start (Vertex): The starting vertex of the edge.
+            end (Vertex): The ending vertex of the edge.
+
+        Returns:
+            Edge: The edge connecting the two vertices, or None if not found.
+        """
+        potential_edges = self.versioned_edges.get((start.coordinates, end.coordinates))
+        if not potential_edges:
+            print(f"Edge not found between {start} and {end}")
+            return None
+
+        left, right = 0, len(potential_edges) - 1
+        result = None
+        while left <= right:
+            mid = (left + right) // 2
+            edge, edge_version = potential_edges[mid]
+            if edge_version <= version:
+                result = edge  
+                left = mid + 1
+            else:
+                right = mid - 1
+        return result
+
+    def remove_face(self, face, version):
+        """
+        Remove a face from the DCEL, and remove the edges that belong to the face, if the twin is None, remove both edges, if not, set its half edge to None.
 
         Args:
             face Face: the face to remove
         """
-        edge = face.outer_edge
-        first_edge = edge
-        self.faces.discard(face)  # Remove face from set   
-        
-        while True:
-            twin_edge = edge.twin
-            if (edge.start.coordinates, edge.end.coordinates) in self.edges:
-                self.edges[(edge.start.coordinates, edge.end.coordinates)].face = None  # Remove edge from hash table
+        if version == face.v: ## if the version is the same, overwrite the face
+            edge = face.outer_edge
+            first_edge = edge
+            self.faces.discard(face)  # Remove face from set   
             
-                # Check if the twin has a face, if not, remove it
-                if twin_edge.face is None:
-                    del self.edges[(edge.end.coordinates, edge.start.coordinates)]
-                    del self.edges[(edge.start.coordinates, edge.end.coordinates)]
-                            
-            edge = edge.next
-            if edge == first_edge:
-                break  # Loop through face complete
+            while True:
+                twin_edge = edge.twin[-1]
+                if (edge.start.coordinates, edge.end.coordinates, version) in self.edges:
+                    self.edges[(edge.start.coordinates, edge.end.coordinates, version)].face = None  # Remove edge from hash table
+                
+                    # Check if the twin has a face, if not, remove it
+                    if twin_edge.face is None:
+                        del self.edges[(edge.end.coordinates, edge.start.coordinates, version)]
+                        del self.edges[(edge.start.coordinates, edge.end.coordinates, version)]
+                                
+                edge = edge.next
+                if edge == first_edge:
+                    break  # Loop through face complete
         
     def get_face_vertices(self, face):
         """
@@ -208,7 +247,7 @@ class DCEL:
         # If det > 0, point lies inside the circumcircle
         return det > 0
 
-    def plot(self, zoom=True, zoom_center=(0,0), zoom_radius=80.0):
+    def plot(self, version, zoom=True, zoom_center=(0,0), zoom_radius=80.0):
         """
         Plot the current state of the DCEL in 2D with optional zoom functionality.
 
@@ -221,9 +260,14 @@ class DCEL:
         
         # Plot edges
         for edge in self.edges.values():
-            x_coords = [edge.start.x, edge.end.x]
-            y_coords = [edge.start.y, edge.end.y]
-            ax.plot(x_coords, y_coords, 'b-', alpha=0.7)  # Blue lines for edges
+            if edge.version <= version:
+                x_coords = [edge.start.x, edge.end.x]
+                y_coords = [edge.start.y, edge.end.y]
+                if version == 0:
+                    color = 'blue'
+                else:
+                    color = plt.cm.viridis(edge.version / version)  # Map version to a color
+                ax.plot(x_coords, y_coords, '-', color=color, alpha=0.7)  # Colored lines for edges
         
         # Plot vertices
         for vertex in self.vertices:
@@ -241,10 +285,9 @@ class DCEL:
         ax.set_aspect('equal', adjustable='datalim')
         plt.xlabel('X')
         plt.ylabel('Y')
-        plt.title('DCEL State')
+        plt.title('DCEL Triangulation')
         plt.show()
 
-    
     def __repr__(self): ## for degbugging
         ret = f'DCEL: {len(self.vertices)} vertices, {len(self.edges)} edges, {len(self.faces)} faces'
         ret += '\nVertices:\n' + ',\n'.join([f"{v.coordinates}" for v in self.vertices])
@@ -259,7 +302,7 @@ class Edge:
     """
     Edge class to be held in the DCEL
     """
-    def __init__(self, start, end, face = None, twin = None , next = None, prev = None):
+    def __init__(self, start, end, version):
         """
         Initialize availible variables
 
@@ -267,23 +310,63 @@ class Edge:
             start (Vertex): _description_
             end (Vertex): _description_
             face (Face, optional): The incident face. Defaults to None.
-            twin (Edge, optional): the twin of the half edge. Defaults to None.
+            twin ([Edge], optional): A list of all twin edges to have ever appeared. Defaults to [].
             next (Edge, optional): the next edge inident on the same face. Defaults to None.
             prev (Edge, optional): the previous edge incident on the same face. Defaults to None.
+            version (int, optional): the version of the edge in the history. Defaults to None.
         """
         self.id = random.randint(0, 1000) # Unique identifier
         self.start = start
         self.end = end
-        self.twin = None  # The opposite edge
+        self.twin = []  # The opposite edgem list of all twin edges to have ever appeared
         self.next = None  # Next edge in the face cycle
         self.prev = None  # Previous edge in the face cycle
         self.face = None  # The face that this edge belongs to
+        self.version = version  # The version of the edge in the history
+    
+    def get_versioned_twin(self, version):
+        """
+        Perform a binary search on the twin stack to find the twin edge with the highest version <= the given version.
+
+        Args:
+            version (int): The version to search for.
+
+        Returns:
+            Edge: The twin edge with the highest version <= the given version, or None if no such twin exists.
+        """
+        twins = self.twin
+        if not twins:
+            return None
+
+        # Binary search
+        low, high = 0, len(twins) - 1
+        result = None
+        while low <= high:
+            mid = (low + high) // 2
+            if twins[mid].version <= version:
+                result = twins[mid]
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        return result
+        
+    def get_current_twin(self):
+        """
+        Get the current twin edge (the one with the highest version).
+
+        Returns:
+            Edge: The current twin edge, or None if no twin exists.
+        """
+        if not self.twin:
+            return None
+        return self.twin[-1]
         
     def __repr__(self): ## for degbugging
         return f'Edge: ({self.start}, {self.end}) id: {self.id}'
     
     def __str__(self):
-        return f'Edge: ({self.start}, {self.end})'
+        return f'Edge: ({self.start}, {self.end}), Version: {self.version}, id: {self.id}'  
 
 class Vertex:
     """
@@ -309,7 +392,7 @@ class Face:
     """
     Face class to be held in the DCEL
     """
-    def __init__(self, edge):
+    def __init__(self, edge, version):
         """
         Initialize the face to hold a edge incident on the face, any edge that refers to this face as its face
 
@@ -317,6 +400,7 @@ class Face:
             edge (Edge): the edge that is indicent on the face
         """
         self.outer_edge = edge
+        self.v = version
         
     def get_centroid(self):
         """

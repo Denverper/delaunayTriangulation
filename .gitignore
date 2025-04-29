@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+*.log
+*.pot
+*.mo
+*.coverage
+.coverage.*
+.cache/
+*.pytest_cache/
+htmlcov/
+.tox/
+*.env
+*.venv
+env/
+venv/
+ENV/
+ENV.*/
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.ipynb_checkpoints/
