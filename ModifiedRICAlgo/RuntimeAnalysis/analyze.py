@@ -5,11 +5,12 @@ from scipy.optimize import curve_fit
 from sklearn.metrics import r2_score
 
 # Load data
-df = pd.read_csv("runtime_data.csv")
+df = pd.read_csv("test.csv")
+print(df)
 points = df["Points"].values
-query_times = df["Query Time (s)"].values
-space = df["Space (bytes)"].values
-build_time = df["Build Time (s)"].values
+build_time = df["Build"].values
+query_times = df["Query"].values
+space = df["Space"].values
 
 # Model definitions
 def linear(n, a, b): return a * n + b
