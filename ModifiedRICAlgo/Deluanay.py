@@ -1,15 +1,19 @@
 import random
 from matplotlib import pyplot as plt
+import numpy as np
+import pandas as pd
 import persistentDCEL as DCEL
 import random
 from pympler import asizeof
 import time
+from multiprocessing import Pool
+
 
 class HistoryDAG:
     """
     Class to implement the history DAG for the DCEL.
     """
-
+    __slots__ = ('root')
     def __init__(self):
         self.root = HistoryDAGNode(None, None) # List to store history of changes
         
@@ -26,7 +30,7 @@ class HistoryDAGNode:
     """
     Class to represent a node in the history DAG.
     """
-
+    __slots__ = ('face', 'children', 'version')
     def __init__(self, face, version):
         self.face = face  # The face associated with this node, a triple of vertices
         self.children = []  # List to store child nodes, at most 3
@@ -48,6 +52,7 @@ class DeluanayIncremental:
     """
     Class to implement the Deluanay triangulation algorithm using the DCEL data structure.
     """
+    __slots__ = ('dcel', 'points', 'historyDAG', 'global_version', 'version_mapping')
 
     def __init__(self, points):
         self.dcel = DCEL.DCEL()
@@ -69,7 +74,6 @@ class DeluanayIncremental:
         
         self.version_mapping.append((curr_p, self.global_version))
         
-    
     @staticmethod 
     def batch_by_priority(points):
         """
@@ -82,7 +86,7 @@ class DeluanayIncremental:
             List of points in the order of priority.
         """
         return sorted(points, key=lambda p: -p[1]) ## sort by priority, highest first, stable sort so points are in permuted order within batches
-    
+        
     @staticmethod
     def _pointer_check(children, version): ## ensure all children of the node are not new than the version given
         for child in children:
@@ -285,7 +289,6 @@ class DeluanayIncremental:
             return (closest_vertex, best_distance)
         else:
             return (None, best_distance)
-            
 
     @staticmethod
     def distance(p: DCEL.Vertex, q: DCEL.Vertex):
@@ -342,81 +345,136 @@ def brute_force_closest(points, query, priority):
                 
     return closest
 
-def analyze_complexity(points_min, points_max, step, b_rep, q_rep):
-    ## buffers for overall complexity
-    space = []
-    query = []
-    build = []
-    point_vals = list(range(points_min, points_max, step))
+# def analyze_complexity(point_vals, b_rep, q_rep):
+#     ## buffers for overall complexity
+#     space = []
+#     query = []
+#     build = []
     
-    for num_points in range(points_min, points_max, step):
-        total_q = 0
-        total_b = 0
-        total_space = 0
+#     for num_points in point_vals:
+#         total_q = 0
+#         total_b = 0
+#         total_space = 0
         
-        for _ in range(b_rep): ## build it b_rep times
-            test_data = []
-            ## generate random points with priorities
-            for _ in range(num_points):  
-                x = random.uniform(-1000, 1000)
-                y = random.uniform(-1000, 1000)
-                priority = random.randint(0, 5)
-                test_data.append(((x, y), priority))
+#         for _ in range(b_rep): ## build it b_rep times
+#             test_data = []
+#             ## generate random points with priorities
+#             for _ in range(num_points):  
+#                 x = random.uniform(-num_points, num_points)
+#                 y = random.uniform(-num_points, num_points)
+#                 priority = random.randint(-100, 100)
+#                 test_data.append(((x, y), priority))
             
-            ## build D(S) and time construction time
-            start_b = time.perf_counter()
-            triang = DeluanayIncremental(test_data)
-            end_b = time.perf_counter()
-            total_b +=(end_b -start_b)
+#             ## build D(S) and time construction time
+#             start_b = time.perf_counter()
+#             triang = DeluanayIncremental(test_data)
+#             end_b = time.perf_counter()
+#             total_b +=(end_b -start_b)
 
-            ## check space allocation
-            size = asizeof.asizeof(triang)
-            total_space += size
+#             ## check space allocation
+#             size = asizeof.asizeof(triang)
+#             total_space += size
         
-            ## check query time for random points on each built D(S)
-            for _ in range(q_rep):
-                point_to_check = (random.uniform(-200, 200), random.uniform(-200, 200))
-                priority = random.randint(-10, 10)
-                start_q = time.time()
-                triang.closest_point(point_to_check, priority)
-                end_q = time.time()
-                total_q += (end_q-start_q)
+#             ## check query time for random points on each built D(S)
+#             for _ in range(q_rep):
+#                 point_to_check = (random.uniform(-num_points, num_points), random.uniform(-num_points, num_points))
+#                 priority = random.randint(-100, 100)
+#                 start_q = time.time()
+#                 triang.closest_point(point_to_check, priority)
+#                 end_q = time.time()
+#                 total_q += (end_q-start_q)
         
-        avg_q = total_q/(q_rep*b_rep)
-        avg_b = total_b/b_rep
-        avg_space = total_space/b_rep
+#         avg_q = total_q/(q_rep*b_rep)
+#         avg_b = total_b/b_rep
+#         avg_space = total_space/b_rep
         
-        query.append(avg_q)
-        build.append(avg_b)
-        space.append(avg_space)
+#         query.append(avg_q)
+#         build.append(avg_b)
+#         space.append(avg_space)
         
-        print(f"{num_points} Points, {b_rep} Build Iterations, {q_rep*b_rep} Query Iterations, Build: {avg_b:3f}, Query: {avg_q:3f}, Space: {avg_space:3f}")
-        
-    plt.plot(point_vals, space, marker='o')
-    plt.title("Space Allocation (Bytes) vs Number of Points for Building Delaunay")
-    plt.xlabel("Number of Points")
-    plt.ylabel("Average Space in Bytes")
-    plt.grid()
-    plt.show()
-    plt.savefig("./spacePers.png")
+#         print(f"{num_points} Points, {b_rep} Build Iterations, {q_rep * b_rep} Query Iterations, Build: {avg_b:.6f}, Query: {avg_q:.6f}, Space: {avg_space:.2f} bytes, Total Time: {(total_b + total_q):.6f} seconds, completion time: {time.strftime('%H:%M:%S', time.gmtime(time.time()))}")
     
-    plt.plot(point_vals, build, marker='o')
-    plt.title("Build Time vs Number of Points for Building Delaunay")
-    plt.xlabel("Number of Points")
-    plt.ylabel("Average Build Time (s)")
-    plt.grid()
-    plt.show()
-    plt.savefig("./buildPers.png")
+#     with open("./ModifiedRICAlgo/TmpRuntimeData/complexity.txt", "w") as f:
+#         for i in range(len(point_vals)):
+#             f.write(f"{point_vals[i]}, {space[i]}, {build[i]}, {query[i]}\n")
+            
+#     plt.plot(point_vals, space, marker='o')
+#     plt.title("Space Allocation (Bytes) vs Number of Points for Building Delaunay")
+#     plt.xlabel("Number of Points")
+#     plt.ylabel("Average Space in Bytes")
+#     plt.grid()
+#     plt.savefig("./spacePers.png")
+#     plt.show()
     
-    plt.plot(point_vals, query, marker='o')
-    plt.title("Query Time vs Number of Points for Building Delaunay")
-    plt.xlabel("Number of Points")
-    plt.ylabel("Average Query Time (s)")
-    plt.grid()
-    plt.savefig("./queryPers.png")
-    plt.show()
+#     plt.plot(point_vals, build, marker='o')
+#     plt.title("Build Time vs Number of Points for Building Delaunay")
+#     plt.xlabel("Number of Points")
+#     plt.ylabel("Average Build Time (s)")
+#     plt.grid()
+#     plt.savefig("./buildPers.png")
+#     plt.show()
     
-# Function to benchmark and verify correctness, not runtime
+#     plt.plot(point_vals, query, marker='o')
+#     plt.title("Query Time vs Number of Points for Building Delaunay")
+#     plt.xlabel("Number of Points")
+#     plt.ylabel("Average Query Time (s)")
+#     plt.grid()
+#     plt.savefig("./queryPers.png")
+#     plt.show()
+
+def run_single_experiment(num_points, b_rep, q_rep):
+    total_q = 0
+    total_b = 0
+    total_space = 0
+
+    for _ in range(b_rep):
+        test_data = [((random.uniform(-num_points, num_points),
+                       random.uniform(-num_points, num_points)),
+                      random.randint(-100, 100))
+                     for _ in range(num_points)]
+
+        start_b = time.perf_counter()
+        triang = DeluanayIncremental(test_data)
+        end_b = time.perf_counter()
+        total_b += (end_b - start_b)
+
+        total_space += asizeof.asizeof(triang)
+
+        for _ in range(q_rep):
+            point_to_check = (random.uniform(-num_points, num_points),
+                              random.uniform(-num_points, num_points))
+            priority = random.randint(-100, 100)
+            start_q = time.time()
+            triang.closest_point(point_to_check, priority)
+            end_q = time.time()
+            total_q += (end_q - start_q)
+
+    avg_q = total_q / (q_rep * b_rep)
+    avg_b = total_b / b_rep
+    avg_space = total_space / b_rep
+
+    print(f"{num_points} Points — Build: {avg_b:.6f}s, Query: {avg_q:.9f}s, Space: {avg_space:.2f} bytes")
+
+    return num_points, avg_space, avg_b, avg_q
+
+def analyze_complexity(point_vals, b_rep, q_rep):
+    with Pool() as pool:
+        results = pool.starmap(run_single_experiment, [(n, b_rep, q_rep) for n in point_vals])
+
+    # Sort results by point count
+    results.sort(key=lambda x: x[0])
+    point_vals, space, build, query = zip(*results)
+
+    # Save to CSV
+    df = pd.DataFrame({
+        'Points': point_vals,
+        'Avg_Space_Bytes': space,
+        'Avg_Build_Time_s': build,
+        'Avg_Query_Time_s': query
+    })
+    df.to_csv('./ModifiedRICAlgo/TmpRuntimeData/complexity_data.csv', index=False)
+    print("Saved results to ./ModifiedRICAlgo/TmpRuntimeData/complexity_data.csv")
+
 def benchmark_and_verify(triang, test_data, n_tests=1000):
     for i in range(n_tests):
         # Pick a random point to query
@@ -431,7 +489,7 @@ def benchmark_and_verify(triang, test_data, n_tests=1000):
         # Compare with brute force
         b_start_time = time.perf_counter()
         expected = brute_force_closest(test_data, point_to_check, priority)
-        b_elapsed = time.perf_counter() - start_time
+        b_elapsed = time.perf_counter() - b_start_time
 
         # Verify
         if result is None or expected is None:
@@ -448,5 +506,6 @@ def benchmark_and_verify(triang, test_data, n_tests=1000):
 
         print(f"Test {i}: OK, time: {elapsed:.6f} seconds, brute force time: {b_elapsed:.6f} seconds")
 
-analyze_complexity(5000, 100000, 5000, 50, 10000) ## min, max, step, build iterations, query iterations
-    
+if __name__ == "__main__":
+    point_vals = np.unique(np.round(np.logspace(np.log10(10000), np.log10(1000000), 15)).astype(int)).tolist()
+    analyze_complexity(point_vals, b_rep=30, q_rep=10000)

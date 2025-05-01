@@ -1,4 +1,3 @@
-import random
 from matplotlib import pyplot as plt
 import tools as tools
 
@@ -144,7 +143,7 @@ class DCEL:
                 edge = edge.next
                 if edge == first_edge:
                     break  # Loop through face complete
-        
+    
     def get_face_vertices(self, face):
         """
         Helper method to get the vertices for a given face
@@ -298,47 +297,22 @@ class DCEL:
     def __str__(self):
         return self.__repr__()
 
-class Edge: 
-    """
-    Edge class to be held in the DCEL
-    """
+class Edge:
+    __slots__ = ('id', 'start', 'end', 'twin', 'next', 'prev', 'face', 'version')
+    
     def __init__(self, start, end, version):
-        """
-        Initialize availible variables
-
-        Args:
-            start (Vertex): _description_
-            end (Vertex): _description_
-            face (Face, optional): The incident face. Defaults to None.
-            twin ([Edge], optional): A list of all twin edges to have ever appeared. Defaults to [].
-            next (Edge, optional): the next edge inident on the same face. Defaults to None.
-            prev (Edge, optional): the previous edge incident on the same face. Defaults to None.
-            version (int, optional): the version of the edge in the history. Defaults to None.
-        """
-        self.id = random.randint(0, 1000) # Unique identifier
         self.start = start
         self.end = end
-        self.twin = []  # The opposite edgem list of all twin edges to have ever appeared
-        self.next = None  # Next edge in the face cycle
-        self.prev = None  # Previous edge in the face cycle
-        self.face = None  # The face that this edge belongs to
-        self.version = version  # The version of the edge in the history
+        self.twin = []
+        self.next = None
+        self.prev = None
+        self.face = None
+        self.version = version
     
     def get_versioned_twin(self, version):
-        """
-        Perform a binary search on the twin stack to find the twin edge with the highest version <= the given version.
-
-        Args:
-            version (int): The version to search for.
-
-        Returns:
-            Edge: The twin edge with the highest version <= the given version, or None if no such twin exists.
-        """
         twins = self.twin
         if not twins:
             return None
-
-        # Binary search
         low, high = 0, len(twins) - 1
         result = None
         while low <= high:
@@ -348,67 +322,47 @@ class Edge:
                 low = mid + 1
             else:
                 high = mid - 1
-
         return result
-        
-    def get_current_twin(self):
-        """
-        Get the current twin edge (the one with the highest version).
 
-        Returns:
-            Edge: The current twin edge, or None if no twin exists.
-        """
+    def get_current_twin(self):
         if not self.twin:
             return None
         return self.twin[-1]
-        
-    def __repr__(self): ## for degbugging
-        return f'Edge: ({self.start}, {self.end}) id: {self.id}'
+    
+    def __repr__(self):
+        return f'Edge: ({self.start}, {self.end})'
     
     def __str__(self):
-        return f'Edge: ({self.start}, {self.end}), Version: {self.version}, id: {self.id}'  
+        return f'Edge: ({self.start}, {self.end}), Version: {self.version}'
+    
+    def __hash__(self):
+        return hash((self.start, self.end, self.version))
 
 class Vertex:
-    """
-    Vertex class to be held in the DCEL
-    """
+    __slots__ = ('coordinates', 'x', 'y', 'edge')
+    
     def __init__(self, coordinates):
-        """
-        Initialize Vertex to hold a reference to an edge incident on it.
-        Args:
-            coordinates (Vertex): the position of the vertex
-        """
         self.coordinates = coordinates
         self.x, self.y = coordinates
         self.edge = None
         
-    def __repr__(self): ## for degbugging
+    def __repr__(self):
         return f'Vertex: ({self.coordinates})'
     
     def __str__(self):
         return f'Vertex: ({self.coordinates})'
+    
+    def __hash__(self):
+        return hash(self.coordinates)
 
 class Face:
-    """
-    Face class to be held in the DCEL
-    """
-    def __init__(self, edge, version):
-        """
-        Initialize the face to hold a edge incident on the face, any edge that refers to this face as its face
+    __slots__ = ('outer_edge', 'v', 'dag_node')
 
-        Args:
-            edge (Edge): the edge that is indicent on the face
-        """
+    def __init__(self, edge, version):
         self.outer_edge = edge
         self.v = version
         
     def get_centroid(self):
-        """
-        Get the centroid of the face by averaging the coordinates of its vertices.
-
-        Returns:
-            tuple: The centroid coordinates (x, y)
-        """
         vertices = []
         edge = self.outer_edge
         first_edge = edge
@@ -421,10 +375,14 @@ class Face:
         y = sum(v.y for v in vertices) / len(vertices)
         return (x, y)
         
-    def __repr__(self): ## for degbugging
+    def __repr__(self):
         return f'Face: {self.outer_edge})'
     
     def __str__(self):
         return f'Face: {self.outer_edge})'
     
+    def __hash__(self):
+        return hash((self.outer_edge, self.v))
+
     
+
