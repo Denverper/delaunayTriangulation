@@ -1,7 +1,6 @@
 # delaunayTriangulation
 
-This is a Python implementation of Randomized Incremental Delaunay triangulation aglorithm, as well as a modification of the algorithm to support priority based nearest neighbor search, as described in the paper: _Efficient Partially Persistent Data Structures for Priority-Based_
-Nearest Neighbor Queries. 
+This is a Python implementation of Randomized Incremental Delaunay triangulation aglorithm, as well as a modification of the algorithm to support priority based nearest neighbor search, as described in the paper: _Efficient Partially Persistent Data Structures for Priority-Based Nearest Neighbor Queries_. 
 
 ## Project Structure
 ```
