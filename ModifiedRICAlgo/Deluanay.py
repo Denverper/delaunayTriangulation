@@ -6,7 +6,6 @@ import persistentDCEL as DCEL
 import random
 from pympler import asizeof
 import time
-from multiprocessing import Pool
 
 
 class HistoryDAG:
@@ -51,6 +50,7 @@ class HistoryDAGNode:
 class DeluanayIncremental:
     """
     Class to implement the Deluanay triangulation algorithm using the DCEL data structure.
+    This structure is made partiallypersistent by versioning the history DAG and the DCEL, while maintaining linear space.
     """
     __slots__ = ('dcel', 'points', 'historyDAG', 'global_version', 'version_mapping')
 
@@ -66,18 +66,18 @@ class DeluanayIncremental:
         self.global_version+=1
         curr_p = self.points[0][1] ## get the priority of the first point, the highest
         for point in self.points:
-            if point[1] != curr_p: ## next batch reached
+            if point[1] != curr_p: ## next batch reached, increment version and add to version mapping
                 self.version_mapping.append((curr_p, self.global_version))
                 curr_p = point[1]
                 self.global_version+=1
             self.insert_point(point[0])
         
-        self.version_mapping.append((curr_p, self.global_version))
+        self.version_mapping.append((curr_p, self.global_version)) ## add the last version mapping
         
     @staticmethod 
     def batch_by_priority(points):
         """
-        Batch the points by priority.
+        Batch the points by priority from increasing to decreasing.
         
         Args:
             points: List of points to batch.
@@ -88,7 +88,7 @@ class DeluanayIncremental:
         return sorted(points, key=lambda p: -p[1]) ## sort by priority, highest first, stable sort so points are in permuted order within batches
         
     @staticmethod
-    def _pointer_check(children, version): ## ensure all children of the node are not new than the version given
+    def _pointer_check(children, version): ## ensure all children of the node are not more recent than the version given
         for child in children:
             if child.face.outer_edge.version > version:
                 return False
@@ -136,7 +136,7 @@ class DeluanayIncremental:
         Args:
             point: The point to insert.
         """
-        # Find the triangle that contains the point
+        # Find the triangle that contains the point at the current version
         triangle = self.find_triangle(point)
         point = DCEL.Vertex(point)
         if triangle is None:
@@ -155,13 +155,14 @@ class DeluanayIncremental:
 
     def find_triangle(self, point, version=None):
         """
-        Find the triangle that contains the point.
+        Find the triangle that contains the point in version v.
         
         Args:
             point: The point to check.
+            version: The version to check against. If None, use the current version.
             
         Returns:
-            Triangle: The triangle that contains the point in the History DAG.
+            HistoryDAGNode: The triangle that contains the point in the History DAG.
         """
         if version is None:
             version = self.global_version
@@ -179,6 +180,15 @@ class DeluanayIncremental:
         return curr
     
     def legalize_edge(self, p, edge: DCEL.Edge, current_node: HistoryDAGNode): ## only called in conctruction, so current version
+        """
+        Legalize the edge by checking if the point p is in the circumcircle of the triangle formed by the give edge and its twin.
+        This function is only ever called in the construction phase, so the version is always the current version.
+
+        Args:
+            p (DCEL.Vertex): the vertex that was added
+            edge (DCEL.Edge): the edge to check
+            current_node (HistoryDAGNode): the node of the edge in the history DAG
+        """
         if edge.get_current_twin() is None or edge.get_current_twin().face is None:
             return
 
@@ -213,6 +223,16 @@ class DeluanayIncremental:
             self.legalize_edge(p, new_face2.outer_edge, new_node2)
        
     def closest_point(self, point, tau):
+        """
+        Find the closest point to the given point with priority >= tau.
+
+        Args:
+            point (tuple(float, float)): the point to find the nearest neighbor of priority >= tau
+            tau (int): the priority threshold
+
+        Returns:
+            DCEL.Vertex: the closest point found in the triangulation
+        """
         query_vertex = DCEL.Vertex(point)
         version = self.get_version(tau) 
         triangle = self.find_triangle(point, version)
@@ -238,12 +258,13 @@ class DeluanayIncremental:
 
     def simulate_insertion(self, p, edge: DCEL.Edge, best_distance, version):
         """
-        Simulate the insertion process and find a closer vertex recursively.
+        Simulate the insertion process and find a closer vertex recursively. Finds all the edges that would be created if the point were inserted.
+        Does not modify the triangulation.
 
         Args:
             p: DCEL.Vertex (query point)
-            edge: DCEL.Edge
-            v: version threshold
+            edge: DCEL.Edge (edge to check)
+            v: version
             best_distance: current best known distance
 
         Returns:
@@ -259,20 +280,17 @@ class DeluanayIncremental:
         new_face = twin_edge.face
         
         if self.dcel.in_circumcircle(new_face, p):
-            # Vertices around the flipped edge
             a = edge.start
             b = edge.end
             d = twin_edge.next.end
             
             closest_vertex = None
             
-            # Check the new neighbor vertices
             dist = self.distance(p, d)
             if dist < best_distance:
                 best_distance = dist
                 closest_vertex = d
             
-            # Recurse into the two new edges after flip
             e1 = self.dcel.get_versioned_edge(a, d, version)
             e2 = self.dcel.get_versioned_edge(d, b, version)
 
@@ -292,12 +310,22 @@ class DeluanayIncremental:
 
     @staticmethod
     def distance(p: DCEL.Vertex, q: DCEL.Vertex):
+        """
+        Calculate the Euclidean distance between two points.
+
+        Args:
+            p (DCEL.Vertex): point 1
+            q (DCEL.Vertex): point 2
+
+        Returns:
+            float: the distance between the two points
+        """
         return ((p.x - q.x) ** 2 + (p.y - q.y) ** 2) ** 0.5
     
     def get_version(self, tau):
         """
         Perform a binary search on self.version_mapping to find the version
-        where version_mapping[0] <= tau.
+        where version_mapping[0] <= tau. This returns the version that corresponds to the given priority.
 
         Args:
             tau: The priority value to search for.
@@ -320,8 +348,7 @@ class DeluanayIncremental:
             else:
                 right = mid - 1
         return -1  # Return -1 if no valid version is found
-    
-    
+        
 def brute_force_closest(points, query, priority):
     """
     Brute force method to find the closest point to the query point with priority >= tau.
@@ -345,13 +372,23 @@ def brute_force_closest(points, query, priority):
                 
     return closest
 
-def analyze_complexity(point_vals, b_rep, q_rep):
+def analyze_complexity_var_points(point_vals, b_rep, q_rep):
+    """
+    Function to analyze the complexity of the Delaunay triangulation algorithm with varying number of points and a fixed number of priorities.
+    It measures the build time, query time, and space allocation for different numbers of points.
+    It generates plots for build time, query time, and space allocation as a function of the number of points.
+
+    Args:
+        point_vals (list[int]): the numbers of points to test
+        b_rep (int): the number of times to build the triangulation
+        q_rep (int): the number of queries to perform on each build
+    """
     ## buffers for overall complexity
     space = []
     query = []
     build = []
     
-    for num_points in point_vals:
+    for num_points in point_vals: 
         total_q = 0
         total_b = 0
         total_space = 0
@@ -423,7 +460,82 @@ def analyze_complexity(point_vals, b_rep, q_rep):
     plt.savefig("./queryPers.png")
     plt.show()
 
+def analyze_complexity_var_p(p_vals, points, b_rep, q_rep):
+    """
+    Function to analyze the complexity of the Delaunay triangulation algorithm with varying number of priorities and a fixed number of points.
+    It measures the build time, query time, and space allocation for different numbers of priorities.
+    It generates plots for build time, query time, and space allocation as a function of the number of priorities.
+    
+    Args:
+        p_vals (list[int]): values of priorities to test
+        points (int): The number of points to test with each priority
+        b_rep (int): the number of times to build the triangulation
+        q_rep (int): the number of queries to perform on each build
+    """
+    ## buffers for overall complexity
+    space = []
+    query = []
+    build = []
+    print(f"{points} Points, {b_rep} Build Iterations, {q_rep * b_rep} Query Iterations, {len(p_vals)} Priorities")
+    for p in p_vals:
+        total_q = 0
+        total_b = 0
+        total_space = 0
+        
+        for _ in range(b_rep): ## build it b_rep times
+            test_data = []
+            ## generate random points with priorities
+            for _ in range(points):  
+                x = random.uniform(-points, points)
+                y = random.uniform(-points, points)
+                priority = random.randint(0, p)
+                test_data.append(((x, y), priority))
+            
+            ## build D(S) and time construction time
+            start_b = time.perf_counter()
+            triang = DeluanayIncremental(test_data)
+            end_b = time.perf_counter()
+            total_b +=(end_b -start_b)
+
+            ## check space allocation
+            size = asizeof.asizeof(triang)
+            total_space += size
+        
+            ## check query time for random points on each built D(S)
+            for _ in range(q_rep):
+                point_to_check = (random.uniform(-points, points), random.uniform(-points, points))
+                priority = random.randint(0, p)
+                start_q = time.time()
+                triang.closest_point(point_to_check, priority)
+                end_q = time.time()
+                total_q += (end_q-start_q)
+        
+        avg_q = total_q/(q_rep*b_rep)
+        avg_b = total_b/b_rep
+        avg_space = total_space/b_rep
+        
+        query.append(avg_q)
+        build.append(avg_b)
+        space.append(avg_space)
+        
+        print(f"{p} Priorities, Build: {avg_b:.6f}, Query: {avg_q:.6f}, Space: {avg_space:.2f} bytes, Total Time: {(total_b + total_q):.6f} seconds, completion time: {time.strftime('%H:%M:%S', time.gmtime(time.time()))}")
+    print(f"Full results for {points} points with differing priorities:")
+    print("Priorities, Space, Build, Query")
+    for i in range(len(p_vals)):
+        print(f'{p_vals[i]}, {space[i]}, {build[i]}, {query[i]}')
+
 def benchmark_and_verify(triang, test_data, n_tests=1000):
+    """
+    Function to benchmark the Delaunay triangulation algorithm and verify its correctness against a brute-force method.
+    Generates random points and priorities to test the closest point method.
+    It compares the results with a brute-force method and prints any mismatches.
+    It also prints the time taken for each test and the brute-force method.
+
+    Args:
+        triang (DeluanayIncremental): the triangulation object to test
+        test_data (list[int]): the list of points to test against, needed for brute force
+        n_tests (int, optional): Number of random tests to run. Defaults to 1000.
+    """
     for i in range(n_tests):
         # Pick a random point to query
         point_to_check = (random.uniform(-200, 200), random.uniform(-200, 200))
@@ -455,5 +567,5 @@ def benchmark_and_verify(triang, test_data, n_tests=1000):
         print(f"Test {i}: OK, time: {elapsed:.6f} seconds, brute force time: {b_elapsed:.6f} seconds")
 
 if __name__ == "__main__":
-    point_vals = np.unique(np.round(np.logspace(np.log10(1000), np.log10(100000), 10)).astype(int)).tolist()
-    analyze_complexity(point_vals, b_rep=50, q_rep=10000)
+    p_vals = np.unique(np.round(np.logspace(np.log10(1), np.log10(10000), 15)).astype(int)).tolist()
+    analyze_complexity_var_p(p_vals, 10000, b_rep=100, q_rep=1000)
