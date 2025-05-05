@@ -563,7 +563,3 @@ def benchmark_and_verify(triang, test_data, n_tests=1000):
             break
 
         print(f"Test {i}: OK, time: {elapsed:.6f} seconds, brute force time: {b_elapsed:.6f} seconds")
-
-if __name__ == "__main__":
-    p_vals = np.unique(np.round(np.logspace(np.log10(1), np.log10(10000), 15)).astype(int)).tolist()
-    analyze_complexity_var_p(p_vals, 10000, b_rep=100, q_rep=1000)

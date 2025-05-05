@@ -402,6 +402,3 @@ def testplot(points):
         test_data.append(((x, y)))
     triang = DelaunayIncremental(test_data)
     triang.dcel.plot(zoom_radius=500)
-    
-    
-testplot(100)
