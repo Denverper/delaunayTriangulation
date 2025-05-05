@@ -1,12 +1,10 @@
 import random
 from matplotlib import pyplot as plt
 import numpy as np
-import pandas as pd
 import persistentDCEL as DCEL
 import random
 from pympler import asizeof
 import time
-
 
 class HistoryDAG:
     """
