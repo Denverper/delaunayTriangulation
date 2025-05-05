@@ -46,12 +46,19 @@ class HistoryDAGNode:
     def __repr__(self):
         return f"Node(face={self.face}, old={self.old})"
 
-class DeluanayIncremental:
+class DelaunayIncremental:
     """
-    Class to implement the Deluanay triangulation algorithm using the DCEL data structure.
+    Class to implement the regular Delaunay triangulation algorithm using the DCEL data structure.
     """
 
     def __init__(self, points):
+        """
+        Initialize the Delaunay triangulation with a list of points.
+        Inserts the points into the triangulation in random order and holds the triangulation in a DCEL.
+
+        Args:
+            points (list[tuple]): The points to triangulate.
+        """
         self.dcel = DCEL.DCEL()
         self.points = points ## shuffle the points, rand permutation
         random.shuffle(self.points)
@@ -63,7 +70,7 @@ class DeluanayIncremental:
         
     def create_supertriangle(self):
         """
-        Create a supertriangle that adaptively surrounds all input points.
+        Create a supertriangle that dynamically surrounds all input points.
         """
         # Extract all x and y coordinates
         xs = [p[0] for p in self.points]
@@ -145,6 +152,14 @@ class DeluanayIncremental:
         return curr
     
     def legalize_edge(self, p, edge: DCEL.Edge, current_node: HistoryDAGNode):
+        """
+        Legalize the edge by checking if the point is in the circumcircle of the triangle. If so, flip the edge. and recurse
+
+        Args:
+            p (DCEL.Vertex): the point to check
+            edge (DCEL.Edge): the edge to check
+            current_node (HistoryDAGNode): the current node of the face of the edge in the history DAG
+        """
         if edge.twin is None or edge.twin.face is None:
             return
 
@@ -179,13 +194,22 @@ class DeluanayIncremental:
 
             current_node.set_old()
             twin_node.set_old()
-            # Recursively legalize, this is not working, maybe wrong edges being passed
+            # Recursively legalize
             self.legalize_edge(p, new_face1.outer_edge, new_node1)
             self.legalize_edge(p, new_face2.outer_edge, new_node2)
-
-            
+     
        
     def closest_point(self, point):
+        """
+        Find the closest point in the triangulation to the given point. 
+        Finds the triangle that contains the point and simulates the insertion process to find the closest vertex, as a subgraph of the Delaunay trianguilaton is the nearest neightbor graph..
+
+        Args:
+            point (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
         query_vertex = DCEL.Vertex(point)
         triangle = self.find_triangle(point)
         
@@ -289,11 +313,13 @@ class DeluanayIncremental:
                 closest_vertex = vertex
         return closest_vertex, min_distance
 
-        
-# Generate random test data
-test_data = []
-
 def time_query(rep):
+    """
+    Time the query time of the Delaunay triangulation algorithm for closest point search.
+
+    Args:
+        rep (int): the number of repetitions for each point.
+    """
     times = []
     point_nums = list(range(10000, 100001, 5000))
     
@@ -305,7 +331,7 @@ def time_query(rep):
             y = random.uniform(-200, 200)
             test_data.append(((x, y)))
         
-        triang = DeluanayIncremental(test_data)
+        triang = DelaunayIncremental(test_data)
         for _ in range(rep):
             point = (random.uniform(-200,200), random.uniform(-200,200))
             start_q = time.time()
@@ -327,6 +353,12 @@ def time_query(rep):
     plt.show()
        
 def time_build(rep):
+    """
+    Time the build time of the Delaunay triangulation algorithm.
+
+    Args:
+        rep (int): the number of repetitions for each point.
+    """
     times = []
     point_nums = list(range(1000, 10000, 1000))
     
@@ -340,7 +372,7 @@ def time_build(rep):
                 test_data.append(((x, y)))
                 
             start_build = time.time()
-            DeluanayIncremental(test_data)
+            DelaunayIncremental(test_data)
             end_build = time.time()
             total_b += (end_build-start_build)
         
@@ -356,19 +388,19 @@ def time_build(rep):
     plt.show()
     plt.savefig("./buildRIC.png")
 
-for i in range(1000):
-    x = random.uniform(-1000, 1000)
-    y = random.uniform(-1000, 1000)
-    test_data.append(((x, y)))
-
-
 def testplot(points):
+    """
+    Test the Delaunay triangulation algorithm by plotting the triangulation.
+
+    Args:
+        points (int): the number of points to generate.
+    """
     test_data = []
     for _ in range(points): 
         x = random.uniform(-1000, 1000)
         y = random.uniform(-1000, 1000)
         test_data.append(((x, y)))
-    triang = DeluanayIncremental(test_data)
+    triang = DelaunayIncremental(test_data)
     triang.dcel.plot(zoom_radius=500)
     
     

@@ -34,6 +34,7 @@ class DCEL:
 
         Args:
             points (list[Vertex]): the ordered list of vertices that make up the face
+            version (int): the version that the face is created in
 
         Raises:
             ValueError: not enough points to make a face
@@ -93,10 +94,12 @@ class DCEL:
     def get_versioned_edge(self, start, end, version):
         """
         Get an edge from the DCEL by its start and end vertices.
+        Binary search over the edges that share the same start and end vertices
 
         Args:
             start (Vertex): The starting vertex of the edge.
             end (Vertex): The ending vertex of the edge.
+            version (int): The version of the edge to retrieve.
 
         Returns:
             Edge: The edge connecting the two vertices, or None if not found.
@@ -121,9 +124,11 @@ class DCEL:
     def remove_face(self, face, version):
         """
         Remove a face from the DCEL, and remove the edges that belong to the face, if the twin is None, remove both edges, if not, set its half edge to None.
+        Faces are only removed if a new face is to be created in the same version, so we can keep track of the edges and vertices that belong to the face.
 
         Args:
             face Face: the face to remove
+            version (int): the version of the face to remove
         """
         if version == face.v: ## if the version is the same, overwrite the face
             edge = face.outer_edge
@@ -310,6 +315,15 @@ class Edge:
         self.version = version
     
     def get_versioned_twin(self, version):
+        """
+        Get the twin edge for a given version using binary search over the twin stack
+
+        Args:
+            version (int): the version to search for
+
+        Returns:
+            Edge: the twin edge <= given version, or None if not found
+        """
         twins = self.twin
         if not twins:
             return None
@@ -363,6 +377,12 @@ class Face:
         self.v = version
         
     def get_centroid(self):
+        """
+        Get the centroid of the face by averaging the coordinates of its vertices.
+
+        Returns:
+            tuple: the (x, y) coordinates of the centroid
+        """
         vertices = []
         edge = self.outer_edge
         first_edge = edge

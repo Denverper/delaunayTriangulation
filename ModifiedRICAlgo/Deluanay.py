@@ -45,9 +45,9 @@ class HistoryDAGNode:
     def __repr__(self):
         return f"Node(face={self.face})"
 
-class DeluanayIncremental:
+class DelaunayIncremental:
     """
-    Class to implement the Deluanay triangulation algorithm using the DCEL data structure.
+    Class to implement the Delaunay triangulation algorithm using the DCEL data structure.
     This structure is made partiallypersistent by versioning the history DAG and the DCEL, while maintaining linear space.
     """
     __slots__ = ('dcel', 'points', 'historyDAG', 'global_version', 'version_mapping')
@@ -363,7 +363,7 @@ def brute_force_closest(points, query, priority):
     
     for point, p in points:
         if p >= priority:
-            d = DeluanayIncremental.distance(DCEL.Vertex(query), DCEL.Vertex(point))
+            d = DelaunayIncremental.distance(DCEL.Vertex(query), DCEL.Vertex(point))
             if d < min_distance:
                 min_distance = d
                 closest = point
@@ -402,7 +402,7 @@ def analyze_complexity_var_points(point_vals, b_rep, q_rep):
             
             ## build D(S) and time construction time
             start_b = time.perf_counter()
-            triang = DeluanayIncremental(test_data)
+            triang = DelaunayIncremental(test_data)
             end_b = time.perf_counter()
             total_b +=(end_b -start_b)
 
@@ -491,7 +491,7 @@ def analyze_complexity_var_p(p_vals, points, b_rep, q_rep):
             
             ## build D(S) and time construction time
             start_b = time.perf_counter()
-            triang = DeluanayIncremental(test_data)
+            triang = DelaunayIncremental(test_data)
             end_b = time.perf_counter()
             total_b +=(end_b -start_b)
 
@@ -530,7 +530,7 @@ def benchmark_and_verify(triang, test_data, n_tests=1000):
     It also prints the time taken for each test and the brute-force method.
 
     Args:
-        triang (DeluanayIncremental): the triangulation object to test
+        triang (DelaunayIncremental): the triangulation object to test
         test_data (list[int]): the list of points to test against, needed for brute force
         n_tests (int, optional): Number of random tests to run. Defaults to 1000.
     """
@@ -559,7 +559,7 @@ def benchmark_and_verify(triang, test_data, n_tests=1000):
         elif result.coordinates != expected:
             print(f"Mismatch at test {i}:")
             print(f"Point: {point_to_check}, Priority: {priority}")
-            print(f"Expected: {expected} - Dist ({DeluanayIncremental.distance(DCEL.Vertex(point_to_check), DCEL.Vertex(expected))}), Got: {result.coordinates} - Dist ({DeluanayIncremental.distance(DCEL.Vertex(point_to_check), result)})")
+            print(f"Expected: {expected} - Dist ({DelaunayIncremental.distance(DCEL.Vertex(point_to_check), DCEL.Vertex(expected))}), Got: {result.coordinates} - Dist ({DelaunayIncremental.distance(DCEL.Vertex(point_to_check), result)})")
             break
 
         print(f"Test {i}: OK, time: {elapsed:.6f} seconds, brute force time: {b_elapsed:.6f} seconds")
