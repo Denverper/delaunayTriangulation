@@ -1,7 +1,7 @@
 import random
 from matplotlib import pyplot as plt
 import numpy as np
-import BaseRICAlgo.tools as tools
+import tools as tools
 
 class DCEL:
     def __init__(self):

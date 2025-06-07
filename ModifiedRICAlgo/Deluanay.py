@@ -50,7 +50,7 @@ class DelaunayIncremental:
     Class to implement the Delaunay triangulation algorithm using the DCEL data structure.
     This structure is made partiallypersistent by versioning the history DAG and the DCEL, while maintaining linear space.
     """
-    __slots__ = ('dcel', 'points', 'historyDAG', 'global_version', 'version_mapping')
+    __slots__ = ('dcel', 'points', 'historyDAG', 'global_version', 'version_mapping', 'outer_verts')
 
     def __init__(self, points):
         self.dcel = DCEL.DCEL()
@@ -60,6 +60,7 @@ class DelaunayIncremental:
         self.historyDAG = HistoryDAG()
         self.global_version = -1
         self.version_mapping = [] ## list of tuples (priotity, version)
+        self.outer_verts = set() ## list of outer vertices of the supertriangle, used to check if a point is outside the supertriangle
         self.create_supertriangle() ## create the supertriangle
         self.global_version+=1
         curr_p = self.points[0][1] ## get the priority of the first point, the highest
@@ -95,36 +96,38 @@ class DelaunayIncremental:
     def create_supertriangle(self):
         """
         Create a supertriangle that adaptively surrounds all input points.
+        Finds the bounding box and creates a triangle that encapsulates the square.
         """
         # Extract all x and y coordinates
         xs = [p[0][0] for p in self.points]
         ys = [p[0][1] for p in self.points]
         
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
+        min_x, max_x = min(xs)-1, max(xs)+1
+        min_y, max_y = min(ys)-1, max(ys)+1
         
-        # Calculate width and height of bounding box
-        width = max_x - min_x
-        height = max_y - min_y
+        p1 = DCEL.Vertex((min_x, min_y))
+        p4 = DCEL.Vertex((max_x, min_y))
+        p2 = DCEL.Vertex((min_x, max_y))
+        p3 =  DCEL.Vertex((max_x, max_y))
         
-        padding = max(width, height) * 10  # 10x bigger than biggest dimension
+        self.outer_verts.add(p1)
+        self.outer_verts.add(p2)
+        self.outer_verts.add(p3)
+        self.outer_verts.add(p4)
+
+        super_triangle_endpoints1 = [p3, p2, p1]
         
-        center_x = (min_x + max_x) / 2
-        center_y = (min_y + max_y) / 2
+        super_triangle_endpoints2 = [p1, p4, p3]
 
-        p1 = (center_x - 2 * padding, center_y - padding)
-        p2 = (center_x + 2 * padding, center_y - padding)
-        p3 = (center_x, center_y + 2 * padding)
+        face1 = self.dcel.create_face(super_triangle_endpoints1, self.global_version)
+        face2 = self.dcel.create_face(super_triangle_endpoints2, self.global_version)
+        
+        node1 = HistoryDAGNode(face1, version=self.global_version)
+        node2 = HistoryDAGNode(face2, version=self.global_version)
 
-        super_triangle_endpoints = [
-            DCEL.Vertex(p1),
-            DCEL.Vertex(p2),
-            DCEL.Vertex(p3)
-        ]
-
-        face = self.dcel.create_face(super_triangle_endpoints, self.global_version)
-        self.historyDAG.root.face = face
-        face.dag_node = self.historyDAG.root
+        self.historyDAG.root.children = [node1, node2] 
+        face1.dag_node = node1
+        face2.dag_node = node2
         self.historyDAG.root.version = self.global_version
 
     def insert_point(self, point):
@@ -235,13 +238,17 @@ class DelaunayIncremental:
         version = self.get_version(tau) 
         triangle = self.find_triangle(point, version)
         
+        if triangle is None:
+            print(f"No triangle found for point {point} with priority {tau}.")
+            return None
+        
         # Initialize with vertices of the triangle
         closest = None
         min_distance = float('inf')
         
         for vertex in self.dcel.get_face_vertices(triangle.face):
             d = self.distance(query_vertex, vertex)
-            if d < min_distance:
+            if d < min_distance and vertex not in self.outer_verts:
                 min_distance = d
                 closest = vertex
 
@@ -285,7 +292,7 @@ class DelaunayIncremental:
             closest_vertex = None
             
             dist = self.distance(p, d)
-            if dist < best_distance:
+            if dist < best_distance and d not in self.outer_verts:
                 best_distance = dist
                 closest_vertex = d
             
@@ -293,13 +300,13 @@ class DelaunayIncremental:
             e2 = self.dcel.get_versioned_edge(d, b, version)
 
             cand1, dist1 = self.simulate_insertion(p, e1, best_distance, version)
-            if dist1 < best_distance:
+            if dist1 < best_distance and cand1 not in self.outer_verts:
                 best_distance = dist1
                 closest_vertex = cand1
 
             
             cand2, dist2 = self.simulate_insertion(p, e2, best_distance, version)
-            if dist2 < best_distance:
+            if dist2 < best_distance and cand2 not in self.outer_verts:
                 best_distance = dist2
                 closest_vertex = cand2
             return (closest_vertex, best_distance)
@@ -536,8 +543,8 @@ def benchmark_and_verify(triang, test_data, n_tests=1000):
     """
     for i in range(n_tests):
         # Pick a random point to query
-        point_to_check = (random.uniform(-200, 200), random.uniform(-200, 200))
-        priority = random.randint(-5, 5)
+        point_to_check = (random.uniform(-1000, 1000), random.uniform(-1000, 1000))
+        priority = random.randint(-10, 10)
 
         # Time the non-brute-force method
         start_time = time.perf_counter()
@@ -563,3 +570,14 @@ def benchmark_and_verify(triang, test_data, n_tests=1000):
             break
 
         print(f"Test {i}: OK, time: {elapsed:.6f} seconds, brute force time: {b_elapsed:.6f} seconds")
+        
+if __name__ == "__main__":
+    test_data = []
+    for _ in range(300000):
+        x = random.uniform(-1000, 1000)
+        y = random.uniform(-1000, 1000)
+        priority = random.randint(-10, 10)
+        test_data.append(((x, y), priority))
+        
+    triang = DelaunayIncremental(test_data)
+    benchmark_and_verify(triang, test_data, n_tests=1000000)

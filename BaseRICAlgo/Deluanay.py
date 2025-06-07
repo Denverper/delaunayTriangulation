@@ -1,5 +1,5 @@
 import random
-import BaseRICAlgo.DCEL as DCEL
+import DCEL as DCEL
 import time
 import matplotlib.pyplot as plt
 
@@ -79,29 +79,31 @@ class DelaunayIncremental:
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
         
-        # Calculate width and height of bounding box
-        width = max_x - min_x
-        height = max_y - min_y
-        
-        padding = max(width, height) * 10  # 10x bigger than biggest dimension
-        
-        center_x = (min_x + max_x) / 2
-        center_y = (min_y + max_y) / 2
+        p1 = (min_x, min_y)
+        p4 = (max_x, min_y)
+        p2 = (min_x, max_y)
+        p3 = (max_x, max_y)
 
-        p1 = (center_x - 2 * padding, center_y - padding)
-        p2 = (center_x + 2 * padding, center_y - padding)
-        p3 = (center_x, center_y + 2 * padding)
-
-        super_triangle_endpoints = [
-            DCEL.Vertex(p1),
+        super_triangle_endpoints1 = [
+            DCEL.Vertex(p3),
             DCEL.Vertex(p2),
+            DCEL.Vertex(p1)
+        ]
+        
+        super_triangle_endpoints2 = [
+            DCEL.Vertex(p1),
+            DCEL.Vertex(p4),
             DCEL.Vertex(p3)
         ]
 
-        face = self.dcel.create_face(super_triangle_endpoints)
-        self.historyDAG.root.face = face
-        face.dag_node = self.historyDAG.root
-
+        face = self.dcel.create_face(super_triangle_endpoints1)
+        face2 = self.dcel.create_face(super_triangle_endpoints2)
+        node1 = HistoryDAGNode(face)
+        node2 = HistoryDAGNode(face2)
+        self.historyDAG.root.children = [node1, node2]  
+        face.dag_node = node1
+        face2.dag_node = node2
+        self.historyDAG.root.set_old()  # Mark the root as old
     
     def insert_point(self, point):
         """
@@ -402,3 +404,5 @@ def testplot(points):
         test_data.append(((x, y)))
     triang = DelaunayIncremental(test_data)
     triang.dcel.plot(zoom_radius=500)
+
+testplot(200)
